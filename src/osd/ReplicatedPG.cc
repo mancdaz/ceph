@@ -3543,7 +3543,10 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	  result = -EINPROGRESS;
 	} else {
 	  // finish
-	  result = finish_copy(ctx);
+	  result = ctx->copy_op->rval;
+	  if (ctx->copy_op->rval >= 0) { // success!
+	    result = finish_copy(ctx);
+	  }
 	}
       }
       break;
@@ -4231,39 +4234,34 @@ void ReplicatedPG::process_copy_chunk(hobject_t oid, tid_t tid, int r)
   }
   OpContext *ctx = cop->ctx;
   cop->objecter_tid = 0;
-  if (r < 0) {
-    copy_ops.erase(ctx->obc->obs.oi.soid);
-    --ctx->obc->copyfrom_readside;
-    kick_object_context_blocked(ctx->obc);
-    reply_ctx(ctx, r);
-    return;
-  }
-  assert(cop->rval >= 0);
+  if (r >= 0) {
+    assert(cop->rval >= 0);
 
-  if (!cop->cursor.is_complete()) {
-    // write out what we have so far
-    vector<OSDOp> ops;
-    tid_t rep_tid = osd->get_tid();
-    osd_reqid_t reqid(osd->get_cluster_msgr_name(), 0, rep_tid);
-    OpContext *tctx = new OpContext(OpRequestRef(), reqid, ops, &ctx->obc->obs, ctx->obc->ssc, this);
-    tctx->mtime = ceph_clock_now(g_ceph_context);
-    RepGather *repop = new_repop(tctx, ctx->obc, rep_tid);
+    if (!cop->cursor.is_complete()) {
+      // write out what we have so far
+      vector<OSDOp> ops;
+      tid_t rep_tid = osd->get_tid();
+      osd_reqid_t reqid(osd->get_cluster_msgr_name(), 0, rep_tid);
+      OpContext *tctx = new OpContext(OpRequestRef(), reqid, ops, &ctx->obc->obs, ctx->obc->ssc, this);
+      tctx->mtime = ceph_clock_now(g_ceph_context);
+      RepGather *repop = new_repop(tctx, ctx->obc, rep_tid);
 
-    if (cop->temp_cursor.is_initial()) {
-      cop->temp_coll = get_temp_coll(&tctx->local_t);
-      cop->temp_oid = generate_temp_object();
-      temp_contents.insert(cop->temp_oid);
-      repop->ctx->new_temp_oid = cop->temp_oid;
+      if (cop->temp_cursor.is_initial()) {
+	cop->temp_coll = get_temp_coll(&tctx->local_t);
+	cop->temp_oid = generate_temp_object();
+	temp_contents.insert(cop->temp_oid);
+	repop->ctx->new_temp_oid = cop->temp_oid;
+      }
+
+      _write_copy_chunk(cop, &tctx->op_t);
+
+      issue_repop(repop, repop->ctx->mtime);
+      eval_repop(repop);
+
+      dout(10) << __func__ << " fetching more" << dendl;
+      _copy_some(ctx, cop);
+      return;
     }
-
-    _write_copy_chunk(cop, &tctx->op_t);
-
-    issue_repop(repop, repop->ctx->mtime);
-    eval_repop(repop);
-
-    dout(10) << __func__ << " fetching more" << dendl;
-    _copy_some(ctx, cop);
-    return;
   }
 
   dout(20) << __func__ << " complete; committing" << dendl;
