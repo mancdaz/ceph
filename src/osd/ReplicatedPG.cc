@@ -962,7 +962,31 @@ void ReplicatedPG::do_cache_redirect(OpRequestRef op, ObjectContextRef obc)
 
 void ReplicatedPG::promote_object(OpRequestRef op, ObjectContextRef obc)
 {
+  MOSDOp *m = static_cast<MOSDOp*>(op->request);
+  if (!obc.get()) { // we need to create an ObjectContext
+    int r = find_object_context(
+      hobject_t(m->get_oid(),
+  	      m->get_object_locator().key,
+  	      m->get_snapid(),
+  	      m->get_pg().ps(),
+  	      m->get_object_locator().get_pool(),
+  	      m->get_object_locator().nspace),
+      &obc, true, NULL);
+    assert(r == 0); // a lookup that allows creates can't fail now
+  }
 
+  vector<OSDOp> ops;
+  tid_t rep_tid = osd->get_tid();
+  osd_reqid_t reqid(osd->get_cluster_msgr_name(), 0, rep_tid);
+  OpContext *cctx = new OpContext(OpRequestRef(), reqid, ops,
+                                  &obc->obs, obc->ssc, this);
+  cctx->obc = obc;
+  object_locator_t oloc(m->get_object_locator());
+  oloc.pool = pool.info.tier_of;
+  start_copy(cctx, obc->obs.oi.soid, oloc, 0, true);
+
+  assert(obc->is_blocked());
+  wait_for_blocked_object(obc->obs.oi.soid, op);
 }
 
 void ReplicatedPG::execute_ctx(OpContext *ctx)

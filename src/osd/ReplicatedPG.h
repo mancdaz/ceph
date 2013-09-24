@@ -630,7 +630,13 @@ protected:
    * @returns true if the caching code is handling the Op, false otherwise.
    */
   inline bool maybe_handle_cache(OpRequestRef op, ObjectContextRef obc, int r);
+  /**
+   * This helper function tells the client to redirect their request elsewhere.
+   */
   void do_cache_redirect(OpRequestRef op, ObjectContextRef obc);
+  /**
+   * This function starts up a copy from
+   */
   void promote_object(OpRequestRef op, ObjectContextRef obc);
 
   int prepare_transaction(OpContext *ctx);
