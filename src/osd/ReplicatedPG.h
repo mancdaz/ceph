@@ -623,8 +623,13 @@ protected:
 				   uint64_t offset, uint64_t length, bool count_bytes);
   void add_interval_usage(interval_set<uint64_t>& s, object_stat_sum_t& st);
 
+  /**
+   * This helper function is called from do_op if the ObjectContext lookup fails.
+   * @returns true if the caching code is handling the Op, false otherwise.
+   */
   inline bool maybe_handle_cache(OpRequestRef op, ObjectContextRef obc, int r);
   void do_cache_redirect(OpRequestRef op, ObjectContextRef obc);
+  void promote_object(OpRequestRef op, ObjectContextRef obc);
 
   int prepare_transaction(OpContext *ctx);
   
