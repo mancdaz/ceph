@@ -3547,7 +3547,7 @@ int ReplicatedPG::do_osd_ops(OpContext *ctx, vector<OSDOp>& ops)
 	    result = -EINVAL;
 	    break;
 	  }
-	  result = start_copy(ctx, src, src_oloc, src_version);
+	  result = start_copy(ctx, src, src_oloc, src_version, false);
 	  if (result < 0)
 	    goto fail;
 	  result = -EINPROGRESS;
@@ -4171,8 +4171,9 @@ struct C_Copyfrom : public Context {
   }
 };
 
-int ReplicatedPG::start_copy(OpContext *ctx,
-			     hobject_t src, object_locator_t oloc, version_t version)
+int ReplicatedPG::start_copy(OpContext *ctx, hobject_t src,
+                             object_locator_t oloc, version_t version,
+                             bool finish_copies)
 {
   const hobject_t& dest = ctx->obs->oi.soid;
   dout(10) << __func__ << " " << dest << " ctx " << ctx
@@ -4187,7 +4188,7 @@ int ReplicatedPG::start_copy(OpContext *ctx,
     cancel_copy(cop);
   }
 
-  CopyOpRef cop(new CopyOp(ctx, src, oloc, version));
+  CopyOpRef cop(new CopyOp(ctx, src, oloc, version, finish_copies));
   copy_ops[dest] = cop;
   ctx->copy_op = cop;
   ++ctx->obc->copyfrom_readside;
@@ -4273,8 +4274,21 @@ void ReplicatedPG::process_copy_chunk(hobject_t oid, tid_t tid, int r)
     }
   }
 
-  dout(20) << __func__ << " complete; committing" << dendl;
-  execute_ctx(ctx);
+  if (!cop->inline_finished) {
+    dout(20) << __func__ << " complete; returning to Op for commit" << dendl;
+    execute_ctx(ctx);
+  } else {
+    dout(20) << __func__ << " complete; committing before returning to Op" << dendl;
+    vector<OSDOp> ops;
+    tid_t rep_tid = osd->get_tid();
+    osd_reqid_t reqid(osd->get_cluster_msgr_name(), 0, rep_tid);
+    OpContext *tctx = new OpContext(OpRequestRef(), reqid, ops, &ctx->obc->obs, ctx->obc->ssc, this);
+    tctx->mtime = ceph_clock_now(g_ceph_context);
+    RepGather *repop = new_repop(tctx, ctx->obc, rep_tid);
+    finish_copy(tctx);
+    issue_repop(repop, repop->ctx->mtime);
+    eval_repop(repop);
+  }
 
   copy_ops.erase(ctx->obc->obs.oi.soid);
   --ctx->obc->copyfrom_readside;
