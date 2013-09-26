@@ -1329,11 +1329,11 @@ int Objecter::recalc_op_target(Op *op)
   bool is_write = op->flags & CEPH_OSD_FLAG_WRITE;
 
   bool need_check_tiering = false;
-  if (op->target_oid.name.empty()) {
+  if (honor_cache_redirects && op->target_oid.name.empty()) {
     op->target_oid = op->base_oid;
     need_check_tiering = true;
   }
-  if (op->target_oloc.empty()) {
+  if (honor_cache_redirects && op->target_oloc.empty()) {
     op->target_oloc = op->base_oloc;
     need_check_tiering = true;
   }
