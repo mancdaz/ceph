@@ -4307,6 +4307,7 @@ void ReplicatedPG::process_copy_chunk(hobject_t oid, tid_t tid, int r)
     tid_t rep_tid = osd->get_tid();
     osd_reqid_t reqid(osd->get_cluster_msgr_name(), 0, rep_tid);
     OpContext *tctx = new OpContext(OpRequestRef(), reqid, ops, &ctx->obc->obs, ctx->obc->ssc, this);
+    tctx->copy_op = cop;
     tctx->mtime = ceph_clock_now(g_ceph_context);
     RepGather *repop = new_repop(tctx, ctx->obc, rep_tid);
     finish_copy(tctx);
